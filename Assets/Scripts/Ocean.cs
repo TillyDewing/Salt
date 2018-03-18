@@ -1,227 +1,70 @@
-﻿using UnityEngine;
+﻿using System.Collections;
 using System.Collections.Generic;
+using UnityEngine;
 
-/* -------------------------------------------------------------------------------
-	Ocean
- 
-	This component is added to a GameObject with a MeshFilter and Renderer.
-	When the component is started it creates a conical ocean Mesh based on
-	the ViewDistance and TileSize. The ocean mesh is added to the MeshFilter.
- 
-	An Ocean.WaveEmitter is an object which releases a sinus wave on the ocean
-	with a specific frequency, wavelength and amplitude.
- 
-	The Ocean GameObject will always be centered on the FollowCamera. If the
-	FollowCamera moves under the Ocean height the Mesh normals are flipped to
-	provide an underwater view. The functions SetOverwater and SetUnderwater
-	are called when the FollowCamera switches between being over and underwater.
- 
-	Since the Ocean GameObject remains centered, the Ocean textures needs to be
-	moved manually in the SetTextureOffset method to provide the illusion of movement.
- ------------------------------------------------------------------------------ */
-[RequireComponent(typeof(MeshFilter))]
+[RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class Ocean : MonoBehaviour
 {
+    public int xSize, zSize;
+    public float waveAplitude = .5f;
+    public int waveSpeed = 10;
+    public float time = 0;
 
-    [System.Serializable]
-    public class WaveEmitter
-    {
-
-        public Vector2 Position;
-        public float Lifetime;
-        public float CurrentTime;
-        public float Frequency;
-        public float WaveLength;
-        public float Amplitude;
-        public float DecayDistance;
-        private float speed;
-        private float frequencyRadians;
-        private float minRadiusSquared;
-        private float maxRadiusSquared;
-
-        public float MaxRadius { get; private set; }
-
-        public bool HasWaves { get; private set; }
-
-        public void Update(float deltaTime)
-        {
-            CurrentTime += deltaTime;
-            speed = WaveLength * Frequency;
-            frequencyRadians = Frequency * Mathf.PI * 2;
-            minRadiusSquared = Mathf.Pow(Mathf.Max(0, (CurrentTime - Lifetime) * speed), 2);
-            maxRadiusSquared = Mathf.Pow(Mathf.Min(DecayDistance, CurrentTime * speed), 2);
-            MaxRadius = Mathf.Sqrt(maxRadiusSquared);
-            HasWaves = minRadiusSquared < maxRadiusSquared;
-        }
-
-        public float GetWaveHeight(float x, float y)
-        {
-            float dx = x - Position.x;
-            float dy = y - Position.y;
-            float distanceSquared = dx * dx + dy * dy;
-            if (distanceSquared < minRadiusSquared || distanceSquared > maxRadiusSquared)
-                return 0;
-            float distance = Mathf.Sqrt(distanceSquared);
-            float localTime = CurrentTime - distance / speed;
-            return Mathf.Sin(localTime * frequencyRadians) * Amplitude
-                * (1 - (distance / DecayDistance)) * (1 - (localTime / Lifetime));
-        }
-
-    }
-
-    private const float NormalTriangleSize = 0.2f;
-    public float TileSize;
-    public int ViewDistance;
-    public List<WaveEmitter> WaveEmitters;
-    public Transform FollowCamera;
-    private int[,] vertexGrid;
-    private float gridCenter;
-    private int[,] gridEdges;
+    private Vector3[] vertices;
     private Mesh mesh;
-    private bool isUnderwater;
+    private const float NormalTriangleSize = 0.2f;
+    
 
-    void Start()
+    private void Update()
     {
-        // Create a 2D grid of vertices contained within the ViewDistance
-        int size = (int)Mathf.Ceil((ViewDistance / TileSize) * 2);
-        gridCenter = (size - 1) * TileSize / 2;
-        vertexGrid = new int[size, size];
-        for (int x = 0; x < size; x++)
-            for (int z = 0; z < size; z++)
-                vertexGrid[x, z] = Mathf.Sqrt(Mathf.Pow(x * TileSize - gridCenter, 2) +
-                    Mathf.Pow(z * TileSize - gridCenter, 2)) < ViewDistance ? 0 : -1;
-
-        // Create a list of vertices and uv-coordinates from the grid
-        gridEdges = new int[size, 2];
-        List<Vector3> vertices = new List<Vector3> { new Vector3(0, -ViewDistance * 2, 0) };
-        List<Vector2> uvCoords = new List<Vector2> { new Vector2(0, 0) };
-        for (int z = 0; z < size; z++)
-        {
-            gridEdges[z, 0] = size - 1;
-            gridEdges[z, 1] = 0;
-            for (int x = 0; x < size; x++)
-            {
-                if (vertexGrid[x, z] > -1)
-                {
-                    if (x == 0 || vertexGrid[x - 1, z] == -1 || x == size - 1 || vertexGrid[x + 1, z] == -1 ||
-                        z == 0 || vertexGrid[x, z - 1] == -1 || z == size - 1 || vertexGrid[x, z + 1] == -1)
-                    {
-                        if (x == 0 || vertexGrid[x - 1, z] == -1)
-                            gridEdges[z, 0] = x;
-                        else if (x == size - 1 || vertexGrid[x + 1, z] == -1)
-                            gridEdges[z, 1] = x;
-                        continue;
-                    }
-                    else
-                        vertexGrid[x, z] = vertices.Count;
-                    Vector3 v = new Vector3(x * TileSize - gridCenter, 0, z * TileSize - gridCenter);
-                    vertices.Add(v);
-                    uvCoords.Add(new Vector2(v.x, v.z));
-                }
-            }
-        }
-
-        // Create a list of triangles from the grid
-        List<int> indices = new List<int>();
-        for (int x = 0; x < size - 1; x++)
-            for (int z = 0; z < size - 1; z++)
-                if (vertexGrid[x, z] > -1 && vertexGrid[x + 1, z] > -1 &&
-                    vertexGrid[x, z + 1] > -1 && vertexGrid[x + 1, z + 1] > -1)
-                {
-                    indices.Add(vertexGrid[x, z]);
-                    indices.Add(vertexGrid[x + 1, z + 1]);
-                    indices.Add(vertexGrid[x + 1, z]);
-                    indices.Add(vertexGrid[x, z]);
-                    indices.Add(vertexGrid[x, z + 1]);
-                    indices.Add(vertexGrid[x + 1, z + 1]);
-                }
-
-        mesh = new Mesh();
-        mesh.vertices = vertices.ToArray();
-        mesh.uv = uvCoords.ToArray();
-        mesh.triangles = indices.ToArray();
-        mesh.RecalculateBounds();
-
-        GetComponent<MeshFilter>().mesh = mesh;
+        Generate();
     }
 
-    void Update()
+    private void Generate()
     {
-        // Keep the Ocean centered on the FollowCamera
-        transform.position = new Vector3(FollowCamera.position.x, 0, FollowCamera.position.z);
-
-        // Reset waves
-        Vector3[] vertices = mesh.vertices;
-        for (int i = 1; i < vertices.Length; i++)
-            vertices[i].y = 0;
-
-        for (int i = WaveEmitters.Count - 1; i > -1; i--)
+        time += Time.deltaTime;
+        if (time >= float.MaxValue - 1)
         {
-            WaveEmitter e = WaveEmitters[i];
+            time = 0;
+        }
+        GetComponent<MeshFilter>().mesh = mesh = new Mesh();
+        mesh.name = "Procedural Grid";
 
-            e.Update(Time.deltaTime);
-            if (!e.HasWaves)
-                WaveEmitters.RemoveAt(i);
+        vertices = new Vector3[(xSize + 1) * (zSize + 1)];
+        Vector2[] uv = new Vector2[vertices.Length];
 
-            // Is the WaveEmitter outside the ViewDistance?
-            if (Mathf.Sqrt(Mathf.Pow(e.Position.x - transform.position.x, 2) +
-                Mathf.Pow(e.Position.y - transform.position.z, 2)) > e.MaxRadius + ViewDistance)
-                continue;
-
-            // Loop through each vertex in the two intersecting circles formed from the grid and emitter MaxRadius
-            float offsetX = e.Position.x - transform.position.x;
-            float offsetY = e.Position.y - transform.position.z;
-            int zMin = Mathf.Max(0, (int)((offsetY - e.MaxRadius + gridCenter) / TileSize));
-            int zMax = Mathf.Min(vertexGrid.GetLength(0) - 1, (int)((offsetY + e.MaxRadius + gridCenter) / TileSize));
-            for (int z = zMin; z <= zMax; z++)
+        for (int i = 0, z = 0; z <= zSize; z++)
+        {
+            for (int x = 0; x <= xSize; x++, i++)
             {
-                float width = Mathf.Sqrt(Mathf.Pow(e.MaxRadius, 2) - Mathf.Pow(-offsetY + z * TileSize - gridCenter, 2));
-                int xMin = Mathf.Max(gridEdges[z, 0], (int)((offsetX - width + gridCenter) / TileSize));
-                int xMax = Mathf.Min(gridEdges[z, 1], (int)((offsetX + width + gridCenter) / TileSize));
-                for (int x = xMin; x <= xMax; x++)
-                {
-                    int index = vertexGrid[x, z];
-                    if (index > 0)
-                        vertices[index].y += e.GetWaveHeight(vertices[index].x + transform.position.x, vertices[index].z + transform.position.z);
-                }
+                vertices[i] = new Vector3(x, GetHeightAtLocation(x,z) ,z);
+                uv[i] = new Vector2((float)x / xSize, (float)z / zSize);
             }
         }
         mesh.vertices = vertices;
-
-        // Flip surface normals if the FollowCamera moves through the water plane
-        bool oldUnderwater = isUnderwater;
-        isUnderwater = GetHeightAtLocation(transform.position.x, transform.position.y) > FollowCamera.position.y;
-        if (isUnderwater != oldUnderwater)
+        mesh.uv = uv;
+        int[] triangles = new int[xSize * zSize * 6];
+        for (int ti = 0, vi = 0, y = 0; y < zSize; y++, vi++)
         {
-            for (int m = 0; m < mesh.subMeshCount; m++)
+            for (int x = 0; x < xSize; x++, ti += 6, vi++)
             {
-                int[] triangles = mesh.GetTriangles(m);
-                for (int i = 0; i < triangles.Length; i += 3)
-                {
-                    int temp = triangles[i + 0];
-                    triangles[i + 0] = triangles[i + 1];
-                    triangles[i + 1] = temp;
-                }
-                mesh.SetTriangles(triangles, m);
+                triangles[ti] = vi;
+                triangles[ti + 3] = triangles[ti + 2] = vi + 1;
+                triangles[ti + 4] = triangles[ti + 1] = vi + xSize + 1;
+                triangles[ti + 5] = vi + xSize + 2;
             }
-            if (isUnderwater)
-                SetUnderwater();
-            else
-                SetOverwater();
         }
+        mesh.triangles = triangles;
         mesh.RecalculateNormals();
-
-        SetTextureOffset(new Vector2(transform.position.x, transform.position.z));
     }
 
-    public float GetHeightAtLocation(float x, float z)
+    public float GetHeightAtLocation(float x , float z)
     {
-        float height = 0;
-        foreach (WaveEmitter emitter in WaveEmitters)
-            height += emitter.GetWaveHeight(x, z);
-        return height;
+        float waveHeight = Mathf.Sin(x + (time * waveSpeed)) * waveAplitude;
+        waveHeight += Mathf.Sin(z + (time * waveSpeed + 3)) * waveAplitude * .5f; 
+        //waveHeight = Mathf.Clamp(waveHeight, -.1f, 1);
+        return waveHeight;
     }
-
     public Vector3 GetNormalAtLocation(float x, float z)
     {
         Vector3 a = new Vector3(x, GetHeightAtLocation(x, z + NormalTriangleSize), z + NormalTriangleSize);
@@ -230,20 +73,16 @@ public class Ocean : MonoBehaviour
         Vector3 dir = Vector3.Cross(b - a, c - a);
         return dir / dir.magnitude;
     }
-
-    public void SetTextureOffset(Vector2 offset)
-    {
-        // TODO: Set the texture offset in the material
-    }
-
-    public void SetOverwater()
-    {
-        // TODO: Set overwater effects
-    }
-
-    public void SetUnderwater()
-    {
-        // TODO: Set underwater effects
-    }
-
+    //private void OnDrawGizmos()
+    //{
+    //    if(vertices == null)
+    //    {
+    //        return;    
+    //    }
+    //    Gizmos.color = Color.black;
+    //    for (int i = 0; i < vertices.Length; i++)
+    //    {
+    //        Gizmos.DrawSphere(vertices[i], 0.1f);
+    //    }
+    //}
 }

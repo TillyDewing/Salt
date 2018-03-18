@@ -1,0 +1,21 @@
+fileFormatVersion: 2
+guid: 5faea7774c60b7f429d2bd1b060308a9
+timeCreated: 1521002681
+licenseType: Free
+TrueTypeFontImporter:
+  serializedVersion: 4
+  fontSize: 16
+  forceTextureCase: -2
+  characterSpacing: 0
+  characterPadding: 1
+  includeFontData: 1
+  fontName: Treasure Map Deadhand
+  fontNames:
+  - Treasure Map Deadhand
+  fallbackFontReferences: []
+  customCharacters: 
+  fontRenderingMode: 0
+  ascentCalculationMode: 1
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
